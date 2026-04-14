@@ -964,6 +964,12 @@ export interface ICreateConversationParams {
     excludeBuiltinSkills?: string[];
     /** Team ownership — conversations with teamId are hidden from the sidebar */
     teamId?: string;
+    /** Display icon/emoji for the agent (used in team mode) */
+    agentIcon?: string;
+    /** Role description for team agents (e.g. "Developer", "Reviewer") */
+    agentRole?: string;
+    /** Identity/personality text injected into system prompt (used by team agents) */
+    agentIdentity?: string;
   };
 }
 interface IResetConversationParams {

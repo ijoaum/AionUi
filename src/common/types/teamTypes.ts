@@ -7,7 +7,7 @@
  * This is the single source of truth — frontend UI, backend spawn validation,
  * and the available-agent-types list passed to the leader prompt all derive from here.
  */
-export const TEAM_SUPPORTED_BACKENDS = new Set(['claude', 'codex', 'gemini']);
+export const TEAM_SUPPORTED_BACKENDS = new Set(['claude', 'codex', 'gemini', 'qwen']);
 
 /** Role of a teammate within a team */
 export type TeammateRole = 'lead' | 'teammate';
@@ -29,6 +29,12 @@ export type TeamAgent = {
   status: TeammateStatus;
   cliPath?: string;
   customAgentId?: string;
+  /** Display icon/emoji for the agent (emoji or asset key) */
+  agentIcon?: string;
+  /** Role description — what this agent does in the team (e.g. "Developer", "Reviewer") */
+  agentRole?: string;
+  /** Identity text injected into the agent's system prompt (personality, expertise, etc.) */
+  agentIdentity?: string;
 };
 
 /** Persisted team record (stored in SQLite `teams` table) */

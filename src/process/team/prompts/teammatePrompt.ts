@@ -62,6 +62,9 @@ export function buildTeammatePrompt(params: TeammatePromptParams): string {
           })
           .join(', ');
 
+  // Use agentRole if provided, otherwise fall back to roleDescription
+  const roleDesc = agent.agentRole || roleDescription(agent.agentType);
+
   const workspaceSection = teamWorkspace
     ? `\n\n## Workspaces
 - **Team workspace**: \`${teamWorkspace}\` — all project work (code, files, tests) happens here.
@@ -70,10 +73,15 @@ export function buildTeammatePrompt(params: TeammatePromptParams): string {
 Always use the team workspace path for any project-related operations.`
     : '';
 
+  // Identity section: use agentIdentity if provided for custom personality/expertise
+  const identitySection = agent.agentIdentity
+    ? `\n\n## Your Expertise & Personality\n${agent.agentIdentity}\n`
+    : '';
+
   return `# You are a Team Member
 
 ## Your Identity
-Name: ${agent.agentName}, Role: ${roleDescription(agent.agentType)}
+Name: ${agent.agentName}, Role: ${roleDesc}${identitySection}
 
 ## Conversation Style
 - If the user greets you, starts a new chat, or asks what you can do without assigning concrete work yet, reply warmly and naturally

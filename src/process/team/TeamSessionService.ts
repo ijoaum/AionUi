@@ -325,6 +325,9 @@ export class TeamSessionService {
       currentModelId: preferredModelId,
       extra: {
         teamId,
+        agentIcon: (agent as TeamAgent).agentIcon,
+        agentRole: (agent as TeamAgent).agentRole,
+        agentIdentity: (agent as TeamAgent).agentIdentity,
       },
     }) as {
       type: AgentType;
@@ -391,6 +394,9 @@ export class TeamSessionService {
       presetAssistantId?: string;
       gateway?: { cliPath?: string };
       teamMcpStdioConfig?: { env?: Array<{ name?: string; value?: string }> };
+      agentIcon?: string;
+      agentRole?: string;
+      agentIdentity?: string;
     };
     const slotId = this.extractRecoveredSlotId(extra);
     const agentType = this.resolveRecoveredAgentType(conversation);
@@ -407,6 +413,9 @@ export class TeamSessionService {
       status: this.mapRecoveredStatus(conversation.status),
       cliPath: extra.cliPath || extra.gateway?.cliPath,
       customAgentId: extra.customAgentId || extra.presetAssistantId,
+      agentIcon: extra.agentIcon,
+      agentRole: extra.agentRole,
+      agentIdentity: extra.agentIdentity,
     };
   }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Form, Input, Message } from '@arco-design/web-react';
+import { Button, Form, Input, Message, Select, Tag, Tooltip } from '@arco-design/web-react';
 import type { RefInputType } from '@arco-design/web-react/es/Input/interface';
-import { FolderOpen, Close, Robot, Folder, FolderPlus, Check, Down } from '@icon-park/react';
+import { FolderOpen, Close, Robot, Folder, FolderPlus, Check, Down, Plus, Delete, Edit } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
 import type { TTeam, TeamAgent } from '@/common/types/teamTypes';
@@ -58,6 +58,31 @@ const AgentCardIcon: React.FC<{ agent: AvailableAgent }> = ({ agent }) => {
   return <Robot size='32' />;
 };
 
+// Common emojis for agent icons
+const AGENT_EMOJIS = [
+  '🤖', '🧠', '💻', '🔧', '📊', '🎨', '📝', '🔍', '⚡', '🛡️',
+  '🎯', '🚀', '💡', '🧪', '📋', '🏗️', '🔬', '📐', '🗂️', '🔗',
+];
+
+const TEAM_ROLES = [
+  { value: 'Developer', label: 'Developer', desc: 'Implement features and fix bugs' },
+  { value: 'Reviewer', label: 'Reviewer', desc: 'Review code and suggest improvements' },
+  { value: 'Tester', label: 'Tester', desc: 'Write and run tests' },
+  { value: 'Architect', label: 'Architect', desc: 'Design system architecture' },
+  { value: 'Researcher', label: 'Researcher', desc: 'Research and gather information' },
+  { value: 'Writer', label: 'Writer', desc: 'Write documentation and content' },
+  { value: 'Coordinator', label: 'Coordinator', desc: 'Coordinate team activities' },
+  { value: 'Custom', label: 'Custom', desc: 'Define your own role' },
+];
+
+interface TeamMemberDraft {
+  name: string;
+  icon: string;
+  role: string;
+  identity: string;
+  backendKey: string | undefined;
+}
+
 const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -68,6 +93,16 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
   const [loading, setLoading] = useState(false);
   const [wsDropdownVisible, setWsDropdownVisible] = useState(false);
   const [wsDropdownPos, setWsDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const [members, setMembers] = useState<TeamMemberDraft[]>([]);
+  const [showMemberForm, setShowMemberForm] = useState(false);
+  const [editingMemberIdx, setEditingMemberIdx] = useState<number | null>(null);
+  const [memberForm, setMemberForm] = useState<TeamMemberDraft>({
+    name: '',
+    icon: '🤖',
+    role: 'Developer',
+    identity: '',
+    backendKey: undefined,
+  });
   const nameInputRef = useRef<RefInputType | null>(null);
   const wsTriggerRef = useRef<HTMLDivElement>(null);
 
@@ -96,6 +131,10 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
     setName('');
     setDispatchAgentKey(undefined);
     setWorkspace('');
+    setMembers([]);
+    setShowMemberForm(false);
+    setEditingMemberIdx(null);
+    setMemberForm({ name: '', icon: '🤖', role: 'Developer', identity: '', backendKey: undefined });
     setWsDropdownVisible(false);
     onClose();
   };
@@ -113,6 +152,41 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
     setWorkspace(path);
     addRecentWorkspace(path);
     setWsDropdownVisible(false);
+  };
+
+  const handleAddMember = () => {
+    if (!memberForm.name.trim()) {
+      Message.warning('Please enter a member name');
+      return;
+    }
+    if (!memberForm.backendKey) {
+      Message.warning('Please select an agent type');
+      return;
+    }
+    if (editingMemberIdx !== null) {
+      const updated = [...members];
+      updated[editingMemberIdx] = { ...memberForm };
+      setMembers(updated);
+      setEditingMemberIdx(null);
+    } else {
+      setMembers([...members, { ...memberForm }]);
+    }
+    setMemberForm({ name: '', icon: '🤖', role: 'Developer', identity: '', backendKey: undefined });
+    setShowMemberForm(false);
+  };
+
+  const handleEditMember = (idx: number) => {
+    setMemberForm({ ...members[idx] });
+    setEditingMemberIdx(idx);
+    setShowMemberForm(true);
+  };
+
+  const handleRemoveMember = (idx: number) => {
+    setMembers(members.filter((_, i) => i !== idx));
+    if (editingMemberIdx === idx) {
+      setEditingMemberIdx(null);
+      setShowMemberForm(false);
+    }
   };
 
   const handleCreate = async () => {
@@ -142,7 +216,30 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
         conversationType: resolveConversationType(dispatchAgentType),
         cliPath: dispatchAgent?.cliPath,
         customAgentId: dispatchAgent?.customAgentId,
+        agentIcon: '👑',
+        agentRole: 'Team Leader',
+        agentIdentity: '',
       });
+
+      // Add team members
+      for (const member of members) {
+        const mAgent = member.backendKey ? agentFromKey(member.backendKey, allAgents) : undefined;
+        const mAgentType = resolveTeamAgentType(mAgent, 'acp');
+        agents.push({
+          slotId: '',
+          conversationId: '',
+          role: 'teammate',
+          status: 'pending',
+          agentType: mAgentType,
+          agentName: member.name,
+          conversationType: resolveConversationType(mAgentType),
+          cliPath: mAgent?.cliPath,
+          customAgentId: mAgent?.customAgentId,
+          agentIcon: member.icon,
+          agentRole: member.role,
+          agentIdentity: member.identity,
+        });
+      }
 
       const team = await ipcBridge.team.create.invoke({
         userId,
@@ -152,7 +249,6 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
         agents,
       });
 
-      // The platform bridge swallows provider errors and returns a sentinel object
       const result = team as unknown as { __bridgeError?: boolean; message?: string };
       if (result.__bridgeError) {
         Message.error(result.message ?? t('team.create.error', { defaultValue: 'Failed to create team' }));
@@ -170,20 +266,21 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
   };
 
   const folderName = workspace ? workspace.split(/[\\/]/).pop() || workspace : '';
+  const selectedLeader = dispatchAgentKey ? agentFromKey(dispatchAgentKey, allAgents) : undefined;
 
   return (
     <AionModal
       visible={visible}
       onCancel={handleClose}
       className='team-create-modal'
-      style={{ width: 560 }}
+      style={{ width: 640 }}
       wrapStyle={{ zIndex: 10000 }}
       maskStyle={{ zIndex: 9999 }}
       autoFocus={false}
       unmountOnExit={false}
       contentStyle={{
         background: 'var(--dialog-fill-0)',
-        maxHeight: 'min(72vh, 680px)',
+        maxHeight: 'min(80vh, 720px)',
         overflow: 'auto',
       }}
       header={{
@@ -214,6 +311,7 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
             style={{ borderRadius: 8 }}
           >
             {t('team.create.confirm', { defaultValue: 'Create Team' })}
+            {members.length > 0 && ` (${1 + members.length} agents)`}
           </Button>
         </div>
       }
@@ -224,7 +322,7 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
           <FormItem label={t('team.create.namePlaceholder', { defaultValue: 'Team name' })} required>
             <Input
               ref={nameInputRef}
-              placeholder={t('team.create.namePlaceholder', { defaultValue: 'Team name' })}
+              placeholder={t('team.create.namePlaceholder', { defaultValue: 'My Awesome Team' })}
               value={name}
               onChange={setName}
             />
@@ -243,7 +341,7 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
                   {t('team.create.noSupportedAgents', { defaultValue: 'No supported agents installed' })}
                 </div>
               ) : (
-                <div className='grid gap-8px' style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+                <div className='grid gap-8px' style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
                   {allAgents.map((agent) => {
                     const key = agentKey(agent);
                     const isSelected = dispatchAgentKey === key;
@@ -276,6 +374,191 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
                 </div>
               )}
             </div>
+          </FormItem>
+
+          {/* Team Members */}
+          <FormItem
+            label={
+              <div className='flex items-center gap-6px'>
+                {t('team.create.members', { defaultValue: 'Team Members' })}
+                <span className='text-xs font-normal text-t-tertiary'>
+                  ({t('common.optional', { defaultValue: 'optional' })})
+                </span>
+              </div>
+            }
+          >
+            {/* Member list */}
+            {members.length > 0 && (
+              <div className='mb-12px flex flex-col gap-8px'>
+                {members.map((member, idx) => (
+                  <div
+                    key={idx}
+                    className='flex items-center gap-12px rounded-10px border border-border-2 bg-fill-1 px-14px py-10px'
+                  >
+                    <span className='text-20px'>{member.icon}</span>
+                    <div className='flex-1 min-w-0'>
+                      <div className='text-14px font-500 text-t-primary'>{member.name}</div>
+                      <div className='text-12px text-t-secondary'>{member.role}</div>
+                    </div>
+                    {member.backendKey && (
+                      <Tag color='arcoblue' size='small'>
+                        {agentFromKey(member.backendKey, allAgents)?.name || member.backendKey}
+                      </Tag>
+                    )}
+                    <div className='flex gap-4px'>
+                      <Button
+                        type='text'
+                        size='mini'
+                        icon={<Edit size='14' />}
+                        onClick={() => handleEditMember(idx)}
+                      />
+                      <Button
+                        type='text'
+                        size='mini'
+                        icon={<Delete size='14' />}
+                        onClick={() => handleRemoveMember(idx)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Member form */}
+            {showMemberForm ? (
+              <div className='rounded-10px border border-border-2 bg-fill-1 p-14px'>
+                <div className='mb-12px text-14px font-500 text-t-primary'>
+                  {editingMemberIdx !== null ? 'Edit Member' : 'Add Member'}
+                </div>
+
+                <div className='mb-10px grid grid-cols-2 gap-10px'>
+                  {/* Name */}
+                  <div>
+                    <label className='mb-4px block text-12px text-t-secondary'>Name</label>
+                    <Input
+                      placeholder='Agent name'
+                      value={memberForm.name}
+                      onChange={(v) => setMemberForm({ ...memberForm, name: v })}
+                    />
+                  </div>
+
+                  {/* Role */}
+                  <div>
+                    <label className='mb-4px block text-12px text-t-secondary'>Role</label>
+                    <Select
+                      value={memberForm.role}
+                      onChange={(v) => setMemberForm({ ...memberForm, role: v })}
+                      triggerProps={{ className: '!w-full' }}
+                    >
+                      {TEAM_ROLES.map((r) => (
+                        <Select.Option key={r.value} value={r.value}>
+                          {r.label}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                    {memberForm.role === 'Custom' && (
+                      <Input
+                        className='mt-6px'
+                        placeholder='Enter custom role'
+                        value={memberForm.role === 'Custom' ? '' : memberForm.role}
+                        onChange={(v) => setMemberForm({ ...memberForm, role: v || 'Custom' })}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Icon picker */}
+                <div className='mb-10px'>
+                  <label className='mb-4px block text-12px text-t-secondary'>Icon</label>
+                  <div className='flex flex-wrap gap-6px'>
+                    {AGENT_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type='button'
+                        onClick={() => setMemberForm({ ...memberForm, icon: emoji })}
+                        className={`flex h-36px w-36px items-center justify-center rounded-8px border text-18px transition-all ${
+                          memberForm.icon === emoji
+                            ? 'border-primary-5 bg-fill-2 shadow-sm'
+                            : 'border-border-2 hover:border-border-1 hover:bg-fill-2'
+                        }`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Backend type */}
+                <div className='mb-10px'>
+                  <label className='mb-4px block text-12px text-t-secondary'>Agent Type</label>
+                  <div className='grid gap-6px' style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                    {allAgents.map((agent) => {
+                      const key = agentKey(agent);
+                      const isSelected = memberForm.backendKey === key;
+                      return (
+                        <div
+                          key={key}
+                          onClick={() => setMemberForm({ ...memberForm, backendKey: key })}
+                          className={`flex items-center gap-6px rounded-8px border px-10px py-6px cursor-pointer transition-all ${
+                            isSelected
+                              ? 'border-primary-5 bg-fill-2'
+                              : 'border-border-2 hover:border-border-1'
+                          }`}
+                        >
+                          <AgentCardIcon agent={agent} />
+                          <span className='truncate text-12px text-t-primary'>{agent.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Identity */}
+                <div className='mb-12px'>
+                  <label className='mb-4px block text-12px text-t-secondary'>
+                    Identity / System Prompt
+                    <span className='ml-4px text-t-tertiary'>({t('common.optional', { defaultValue: 'optional' })})</span>
+                  </label>
+                  <Input.TextArea
+                    placeholder='e.g. You are a senior TypeScript expert. You always write clean, type-safe code with thorough error handling.'
+                    value={memberForm.identity}
+                    onChange={(v) => setMemberForm({ ...memberForm, identity: v })}
+                    autoSize={{ minRows: 2, maxRows: 4 }}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className='flex justify-end gap-8px'>
+                  <Button
+                    size='small'
+                    onClick={() => {
+                      setShowMemberForm(false);
+                      setEditingMemberIdx(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button size='small' type='primary' onClick={handleAddMember}>
+                    {editingMemberIdx !== null ? 'Update' : 'Add Member'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                type='dashed'
+                icon={<Plus size='16' />}
+                onClick={() => {
+                  setMemberForm({ name: '', icon: '🤖', role: 'Developer', identity: '', backendKey: undefined });
+                  setEditingMemberIdx(null);
+                  setShowMemberForm(true);
+                }}
+                className='w-full'
+              >
+                {members.length === 0
+                  ? 'Add team members'
+                  : `Add another member (${members.length} already added)`}
+              </Button>
+            )}
           </FormItem>
 
           {/* Workspace */}

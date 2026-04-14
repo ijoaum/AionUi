@@ -57,6 +57,8 @@ interface AcpAgentManagerData {
   /** Display name for the agent (from extension or custom config) / Agent 显示名称（来自扩展或自定义配置） */
   agentName?: string;
   presetContext?: string; // 智能助手的预设规则/提示词 / Preset context from smart assistant
+  /** Custom identity/personality text injected into system prompt (used by team agents) */
+  agentIdentity?: string;
   /** 启用的 skills 列表，用于过滤 SkillManager 加载的 skills / Enabled skills list for filtering SkillManager skills */
   enabledSkills?: string[];
   /** Force yolo mode (auto-approve) - used by CronService for scheduled tasks */
@@ -1012,6 +1014,9 @@ ${collectedResponses.join('\n')}`;
           if (useNativeSkills) {
             // Native skill discovery via workspace symlinks — inject preset rules + team guide
             const parts: string[] = [];
+            if (this.options.agentIdentity) {
+              parts.push(`## Your Identity & Expertise\n${this.options.agentIdentity}`);
+            }
             if (this.options.presetContext) parts.push(this.options.presetContext);
             if (!isInTeam && shouldInjectTeamGuideMcp(this.options.backend)) {
               const { getTeamGuidePrompt } = await import('@process/resources/prompts/teamGuidePrompt');
@@ -1022,7 +1027,10 @@ ${collectedResponses.join('\n')}`;
             }
           } else {
             // Custom workspace or no native support — inject rules + skills via prompt
-            contentToSend = await prepareFirstMessageWithSkillsIndex(contentToSend, {
+            const identityPrefix = this.options.agentIdentity
+              ? `## Your Identity & Expertise\n${this.options.agentIdentity}\n\n`
+              : '';
+            contentToSend = await prepareFirstMessageWithSkillsIndex(identityPrefix + contentToSend, {
               presetContext: this.options.presetContext,
               enabledSkills: this.options.enabledSkills,
               enableTeamGuide: !isInTeam && shouldInjectTeamGuideMcp(this.options.backend),
