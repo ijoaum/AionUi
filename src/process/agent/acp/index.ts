@@ -197,6 +197,8 @@ export class AcpAgent {
   // Turn-level observability for "thought shown but no answer rendered" cases.
   private turnHasThought = false;
   private turnHasContent = false;
+  // Track whether conversation history has been injected after session resume.
+  private hasInjectedHistory = false;
 
   constructor(config: AcpAgentConfig) {
     this.id = config.id;
@@ -717,6 +719,18 @@ export class AcpAgent {
           `</system-reminder>\n\n`;
         processedContent = modelNotice + processedContent;
         this.pendingModelSwitchNotice = null;
+      }
+
+      // Inject conversation history from SQLite for Qwen backend on first message after resume.
+      // Qwen's session/load may not fully restore context from JSONL, so we inject the
+      // AionUi message history as context prefix to ensure continuity.
+      // See: https://github.com/QwenLM/qwen-code/issues/1100
+      if (!this.hasInjectedHistory && this.extra.backend === 'qwen' && this.extra.acpSessionId) {
+        const historyPrefix = await this.buildHistoryContextPrefix();
+        if (historyPrefix) {
+          processedContent = historyPrefix + processedContent;
+          this.hasInjectedHistory = true;
+        }
       }
 
       // Re-read timeout config before each prompt so changes take effect immediately
@@ -1540,10 +1554,10 @@ export class AcpAgent {
 
           emitMcpStatus?.('session_injecting', { serverCount: mcpServers.length });
 
-          if (this.extra.backend === 'codex') {
-            // Codex ACP bridge implements session/load (load_session) which calls
-            // resume_thread_from_rollout internally to restore full conversation history.
-            // Codex ignores resumeSessionId in session/new, so we must use session/load.
+          if (this.extra.backend === 'codex' || this.extra.backend === 'qwen') {
+            // Codex and Qwen ACP bridges implement session/load which restores full conversation history.
+            // Codex ignores resumeSessionId in session/new; Qwen's session/load endpoint was added
+            // to support IDE integrations (see Qwen Code issue #1100).
             response = await this.connection.loadSession(resumeSessionId, this.extra.workspace, mcpServers);
           } else {
             // Claude/CodeBuddy use _meta in session/new; others use generic resumeSessionId
@@ -1594,6 +1608,54 @@ export class AcpAgent {
       const error = err instanceof Error ? err.message : String(err);
       emitMcpStatus?.('session_error', { error });
       throw err;
+    }
+  }
+
+  /**
+   * Build a context prefix containing conversation history from AionUi's SQLite database.
+   * This is prepended to the first user message after session resume to ensure continuity
+   * even if the CLI's session/load doesn't fully restore context.
+   * Patterned after GeminiAgentManager.injectHistoryFromDatabase().
+   *
+   * @returns Context prefix string, or null if no history to inject
+   */
+  private async buildHistoryContextPrefix(): Promise<string | null> {
+    try {
+      // Dynamic import to avoid circular dependency
+      const { getDatabase } = await import('@process/services/database');
+      const db = await getDatabase();
+      const result = db.getConversationMessages(this.id, 0, 10000);
+      const messages = (result.data || []) as TMessage[];
+
+      // Filter to text messages, take last 20 (like Gemini does), limit to 4000 chars
+      const historyLines = messages
+        .filter((m) => m.type === 'text')
+        .slice(-20)
+        .map((m) => {
+          const content = typeof m.content === 'string' ? m.content : (m.content as any).content || '';
+          return `${m.position === 'right' ? 'User' : 'Assistant'}: ${content}`;
+        });
+
+      const historyText = historyLines.join('\n').slice(-4000);
+
+      if (!historyText) {
+        return null;
+      }
+
+      console.log(`[AcpAgent] Will inject ${historyLines.length} history messages for session ${this.extra.acpSessionId}`);
+
+      return (
+        `<system-reminder>\n` +
+        `Previous conversation context (use this for continuity, do NOT respond to this):\n${historyText}\n` +
+        `</system-reminder>\n\n`
+      );
+    } catch (error) {
+      // Don't fail message send if history injection fails
+      console.warn(
+        '[AcpAgent] Failed to build history context:',
+        error instanceof Error ? error.message : String(error)
+      );
+      return null;
     }
   }
 

@@ -159,7 +159,20 @@ describe('AcpAgent.createOrResumeSession — Codex routing', () => {
     expect(newSession).not.toHaveBeenCalled();
   });
 
-  it('routes non-Codex backends to newSession', async () => {
+  it('routes Qwen to loadSession instead of newSession', async () => {
+    const agent = makeAgent('qwen', 'session-qwen-1');
+    const conn: AcpConnection = (agent as any).connection;
+
+    const loadSession = vi.spyOn(conn, 'loadSession').mockResolvedValue({ sessionId: 'session-qwen-1' } as any);
+    const newSession = vi.spyOn(conn, 'newSession').mockResolvedValue({ sessionId: 'fresh' } as any);
+
+    await (agent as any).createOrResumeSession();
+
+    expect(loadSession).toHaveBeenCalledWith('session-qwen-1', expect.any(String), expect.anything());
+    expect(newSession).not.toHaveBeenCalled();
+  });
+
+  it('routes non-Codex/Qwen backends to newSession', async () => {
     const agent = makeAgent('claude', 'session-claude-1');
     const conn: AcpConnection = (agent as any).connection;
 
@@ -172,11 +185,23 @@ describe('AcpAgent.createOrResumeSession — Codex routing', () => {
     expect(loadSession).not.toHaveBeenCalled();
   });
 
-  it('falls back to newSession when loadSession throws', async () => {
+  it('falls back to newSession when loadSession throws for Codex', async () => {
     const agent = makeAgent('codex', 'session-expired');
     const conn: AcpConnection = (agent as any).connection;
 
     vi.spyOn(conn, 'loadSession').mockRejectedValue(new Error('rollout expired'));
+    const newSession = vi.spyOn(conn, 'newSession').mockResolvedValue({ sessionId: 'fresh-session' } as any);
+
+    await (agent as any).createOrResumeSession();
+
+    expect(newSession).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ mcpServers: [] }));
+  });
+
+  it('falls back to newSession when loadSession throws for Qwen', async () => {
+    const agent = makeAgent('qwen', 'session-expired');
+    const conn: AcpConnection = (agent as any).connection;
+
+    vi.spyOn(conn, 'loadSession').mockRejectedValue(new Error('session expired'));
     const newSession = vi.spyOn(conn, 'newSession').mockResolvedValue({ sessionId: 'fresh-session' } as any);
 
     await (agent as any).createOrResumeSession();

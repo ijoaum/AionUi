@@ -145,6 +145,21 @@ function createClaudeAgent(extra: Record<string, unknown> = {}) {
   });
 }
 
+function createQwenAgent(extra: Record<string, unknown> = {}) {
+  return new AcpAgent({
+    id: 'conv-test-1',
+    backend: 'qwen',
+    workingDir: '/tmp',
+    extra: {
+      workspace: '/tmp',
+      backend: 'qwen' as const,
+      ...extra,
+    },
+    onStreamEvent: vi.fn(),
+    onSessionIdUpdate: vi.fn(),
+  });
+}
+
 async function callCreateOrResume(agent: AcpAgent) {
   return (agent as any).createOrResumeSession.bind(agent)();
 }
@@ -265,6 +280,16 @@ describe('Step 7a: createOrResumeSession — Codex vs non-Codex routing', () => 
     await callCreateOrResume(agent);
     expect(mockNewSession).toHaveBeenCalledOnce();
     expect(mockLoadSession).not.toHaveBeenCalled();
+  });
+
+  it('Qwen resume calls loadSession, never newSession', async () => {
+    const agent = createQwenAgent({
+      acpSessionId: 'session-abc',
+      acpSessionConversationId: 'conv-test-1',
+    });
+    await callCreateOrResume(agent);
+    expect(mockLoadSession).toHaveBeenCalledOnce();
+    expect(mockNewSession).not.toHaveBeenCalled();
   });
 
   it('non-Codex resume: newSession options contain mcpServers array', async () => {
