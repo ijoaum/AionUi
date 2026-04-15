@@ -1529,6 +1529,11 @@ export class AcpAgent {
     const resumeConversationId = this.extra.acpSessionConversationId;
     const mcpServers = await this.loadBuiltinSessionMcpServers();
 
+    // Reset history injection flag so the next message after session create/resume
+    // will include the SQLite conversation context. This handles auto-reconnect
+    // scenarios where the connection drops and a new session is created.
+    this.hasInjectedHistory = false;
+
     // Derive teamId from injected team MCP server name (format: aionui-team-<teamId>)
     // Only emit MCP status events when running inside a team session.
     const teamMcpName = this.extra.teamMcpStdioConfig?.name;
