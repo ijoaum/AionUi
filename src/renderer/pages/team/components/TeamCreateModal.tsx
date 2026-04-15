@@ -83,6 +83,8 @@ interface TeamMemberDraft {
   role: string;
   identity: string;
   backendKey: string | undefined;
+  /** Separate field for custom role text input (independent of role selection state) */
+  customRoleText?: string;
 }
 
 const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
@@ -461,8 +463,8 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
                       <Input
                         className='mt-6px'
                         placeholder='Enter custom role'
-                        value={memberForm.role === 'Custom' ? '' : memberForm.role}
-                        onChange={(v) => setMemberForm({ ...memberForm, role: v || 'Custom' })}
+                        value={memberForm.customRoleText ?? ''}
+                        onChange={(v) => setMemberForm({ ...memberForm, customRoleText: v })}
                       />
                     )}
                   </div>
