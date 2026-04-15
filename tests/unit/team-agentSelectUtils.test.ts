@@ -2,16 +2,35 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveConversationType,
-  isTeamSupportedBackend,
   filterTeamSupportedAgents,
   agentKey,
   agentFromKey,
   resolveTeamAgentType,
-  TEAM_SUPPORTED_BACKENDS,
 } from '@renderer/pages/team/components/agentSelectUtils';
-import { MCP_CAPABLE_TYPES } from '@process/team/TeammateManager';
+import { isTeamCapableBackend, getTeamCapableBackends } from '@/common/types/teamTypes';
 import { buildTeamMcpServer } from '@process/agent/acp/mcpSessionConfig';
 import type { AvailableAgent } from '@renderer/utils/model/agentTypes';
+import type { AcpInitializeResult } from '@/common/types/acpTypes';
+
+// Helper to build a minimal cached AcpInitializeResult with mcpCapabilities.stdio = true
+function makeCachedInit(backends: string[]): Record<string, AcpInitializeResult> {
+  const result: Record<string, AcpInitializeResult> = {};
+  for (const b of backends) {
+    result[b] = {
+      protocolVersion: 1,
+      capabilities: {
+        loadSession: false,
+        promptCapabilities: { image: false, audio: false, embeddedContext: false },
+        mcpCapabilities: { stdio: true, http: false, sse: false },
+        sessionCapabilities: { fork: null, resume: null, list: null, close: null },
+        _meta: {},
+      },
+      agentInfo: null,
+      authMethods: [],
+    };
+  }
+  return result;
+}
 
 // ---------------------------------------------------------------------------
 // resolveConversationType
@@ -49,18 +68,16 @@ describe('resolveConversationType', () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// isTeamSupportedBackend — the gate that decides MCP injection eligibility
-// ---------------------------------------------------------------------------
+// isTeamCapableBackend — tests against the actual TEAM_SUPPORTED_BACKENDS set
 describe('isTeamSupportedBackend', () => {
   it.each(['claude', 'codex', 'gemini', 'qwen'])('allows verified backend "%s"', (backend) => {
-    expect(isTeamSupportedBackend(backend)).toBe(true);
+    expect(isTeamCapableBackend(backend, null)).toBe(true);
   });
 
   it.each(['codebuddy', 'aionrs', 'openclaw-gateway', 'nanobot', 'remote', 'copilot', 'kimi', 'goose'])(
     'rejects unverified backend "%s"',
     (backend) => {
-      expect(isTeamSupportedBackend(backend)).toBe(false);
+      expect(isTeamCapableBackend(backend, null)).toBe(false);
     }
   );
 });
@@ -77,7 +94,9 @@ describe('filterTeamSupportedAgents', () => {
       ...overrides,
     }) as AvailableAgent;
 
-  it('keeps verified agents and removes unverified agents', () => {
+  const cached = makeCachedInit(['claude', 'codex']);
+
+  it('keeps verified backends (via TEAM_SUPPORTED_BACKENDS) even without cache', () => {
     const agents = [
       makeAgent('claude'),
       makeAgent('gemini'),
@@ -85,24 +104,25 @@ describe('filterTeamSupportedAgents', () => {
       makeAgent('qwen'),
       makeAgent('codebuddy'),
     ];
-    const result = filterTeamSupportedAgents(agents);
+    // Without cached init results, only TEAM_SUPPORTED_BACKENDS entries pass
+    const result = filterTeamSupportedAgents(agents, null);
     expect(result.map((a: AvailableAgent) => a.backend)).toEqual(['claude', 'gemini', 'codex', 'qwen']);
   });
 
   it('uses presetAgentType over backend when available', () => {
     const agent = makeAgent('claude', { presetAgentType: 'codebuddy' });
-    const result = filterTeamSupportedAgents([agent]);
+    const result = filterTeamSupportedAgents([agent], null);
     expect(result).toHaveLength(0);
   });
 
   it('returns empty array when no agents are supported', () => {
     const agents = [makeAgent('codebuddy'), makeAgent('remote'), makeAgent('kimi')];
-    expect(filterTeamSupportedAgents(agents)).toEqual([]);
+    expect(filterTeamSupportedAgents(agents, null)).toEqual([]);
   });
 
-  it('returns all agents when all are verified', () => {
-    const agents = [makeAgent('claude'), makeAgent('codex')];
-    expect(filterTeamSupportedAgents(agents)).toHaveLength(2);
+  it('returns agents from cache + hardcoded list when both are available', () => {
+    const agents = [makeAgent('claude'), makeAgent('codex'), makeAgent('qwen')];
+    expect(filterTeamSupportedAgents(agents, cached)).toHaveLength(3);
   });
 });
 

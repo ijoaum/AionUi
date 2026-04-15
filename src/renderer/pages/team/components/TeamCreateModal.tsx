@@ -4,6 +4,8 @@ import type { RefInputType } from '@arco-design/web-react/es/Input/interface';
 import { FolderOpen, Close, Robot, Folder, FolderPlus, Check, Down, Plus, Delete, Edit } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
+import { ConfigStorage } from '@/common/config/storage';
+import type { AcpInitializeResult } from '@/common/types/acpTypes';
 import type { TTeam, TeamAgent } from '@/common/types/teamTypes';
 import type { AvailableAgent } from '@renderer/utils/model/agentTypes';
 import { getAgentLogo } from '@renderer/utils/model/agentLogo';
@@ -92,7 +94,6 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
   const [workspace, setWorkspace] = useState('');
   const [loading, setLoading] = useState(false);
   const [wsDropdownVisible, setWsDropdownVisible] = useState(false);
-  const [wsDropdownPos, setWsDropdownPos] = useState({ top: 0, left: 0, width: 0 });
   const [members, setMembers] = useState<TeamMemberDraft[]>([]);
   const [showMemberForm, setShowMemberForm] = useState(false);
   const [editingMemberIdx, setEditingMemberIdx] = useState<number | null>(null);
@@ -104,28 +105,28 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
     backendKey: undefined,
   });
   const nameInputRef = useRef<RefInputType | null>(null);
-  const wsTriggerRef = useRef<HTMLDivElement>(null);
+  const [cachedInitResults, setCachedInitResults] = useState<Record<string, AcpInitializeResult> | null>(null);
 
-  const allAgents = filterTeamSupportedAgents([...cliAgents]);
-  const isDesktop = isElectronDesktop();
-  const recentWorkspaces = getRecentWorkspaces();
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    ConfigStorage.get('acp.cachedInitializeResult')
+      .then((data) => {
+        if (active) setCachedInitResults(data ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [visible]);
+
+  const allAgents = filterTeamSupportedAgents([...cliAgents], cachedInitResults);
 
   useEffect(() => {
     if (visible) {
       setTimeout(() => nameInputRef.current?.focus(), 50);
     }
   }, [visible]);
-
-  useEffect(() => {
-    if (!wsDropdownVisible) return;
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (wsTriggerRef.current && !wsTriggerRef.current.contains(e.target as Node)) {
-        setWsDropdownVisible(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [wsDropdownVisible]);
 
   const handleClose = () => {
     setName('');
@@ -572,130 +573,16 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
               </>
             }
           >
-            {isDesktop ? (
-              <div className='relative' ref={wsTriggerRef}>
-                <div
-                  data-testid='team-create-workspace-trigger'
-                  onClick={() => {
-                    if (recentWorkspaces.length === 0) {
-                      handleBrowseWorkspace();
-                      return;
-                    }
-                    if (!wsDropdownVisible && wsTriggerRef.current) {
-                      const rect = wsTriggerRef.current.getBoundingClientRect();
-                      setWsDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-                    }
-                    setWsDropdownVisible((v) => !v);
-                  }}
-                  className={`flex min-h-44px items-center gap-10px rounded-10px border px-12px py-8px transition-all ${
-                    wsDropdownVisible
-                      ? 'border-primary-5 bg-fill-2 shadow-sm'
-                      : 'border-border-2 bg-fill-1 hover:border-border-1 hover:bg-fill-2'
-                  }`}
-                >
-                  <FolderOpen theme='outline' size='16' fill='currentColor' className='shrink-0 text-t-secondary' />
-                  <div className='flex-1 min-w-0'>
-                    {workspace ? (
-                      <div className='flex flex-col'>
-                        <span className='text-sm leading-20px text-t-primary'>{folderName}</span>
-                        <span className='truncate text-11px leading-16px text-t-tertiary'>{workspace}</span>
-                      </div>
-                    ) : (
-                      <span className='text-sm text-t-secondary'>
-                        {t('team.create.selectFolder', { defaultValue: 'Select folder' })}
-                      </span>
-                    )}
-                  </div>
-                  {workspace ? (
-                    <Close
-                      theme='outline'
-                      size='14'
-                      fill='currentColor'
-                      className='shrink-0 text-t-secondary transition-colors hover:text-t-primary'
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        setWorkspace('');
-                        setWsDropdownVisible(false);
-                      }}
-                    />
-                  ) : (
-                    <Down size='14' fill='currentColor' className='shrink-0 text-t-secondary' />
-                  )}
-                </div>
-
-                {wsDropdownVisible && (
-                  <div
-                    data-testid='team-create-workspace-menu'
-                    style={{
-                      position: 'fixed',
-                      top: wsDropdownPos.top,
-                      left: wsDropdownPos.left,
-                      width: wsDropdownPos.width,
-                      zIndex: 10010,
-                      backgroundColor: 'var(--bg-2)',
-                      opacity: 1,
-                      backdropFilter: 'none',
-                      WebkitBackdropFilter: 'none',
-                      isolation: 'isolate',
-                    }}
-                    className='overflow-hidden rounded-12px border border-border-1 p-6px shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
-                  >
-                    {recentWorkspaces.length > 0 && (
-                      <>
-                        <div className='px-10px py-6px text-11px font-medium tracking-[0.08em] text-t-tertiary uppercase'>
-                          {t('team.create.recentLabel', { defaultValue: 'Recent' })}
-                        </div>
-                        {recentWorkspaces.map((path) => {
-                          const recentName = path.split(/[\\/]/).pop() || path;
-                          const isSelected = workspace === path;
-                          return (
-                            <div
-                              key={path}
-                              onClick={() => handleSelectRecentWorkspace(path)}
-                              className={`mx-2px flex items-center gap-10px rounded-10px px-10px py-8px transition-all cursor-pointer ${
-                                isSelected
-                                  ? 'border border-primary-5 bg-fill-2 shadow-[0_0_0_1px_rgba(var(--primary-6),0.24)] hover:bg-fill-2'
-                                  : 'border border-transparent hover:border-border-2 hover:bg-fill-1'
-                              }`}
-                            >
-                              <Folder
-                                theme='outline'
-                                size='16'
-                                fill='currentColor'
-                                className='shrink-0 text-t-secondary'
-                              />
-                              <div className='flex-1 min-w-0'>
-                                <div className='text-sm leading-20px text-t-primary'>{recentName}</div>
-                                <div className='truncate text-11px leading-16px text-t-secondary'>{path}</div>
-                              </div>
-                              {isSelected && (
-                                <Check size='14' fill='currentColor' className='shrink-0 text-primary-6' />
-                              )}
-                            </div>
-                          );
-                        })}
-                        <div className='mx-6px my-4px border-t border-border-2' />
-                      </>
-                    )}
-                    <div
-                      onClick={handleBrowseWorkspace}
-                      className='mx-2px flex items-center gap-10px rounded-10px border border-transparent px-10px py-8px transition-all cursor-pointer hover:border-border-2 hover:bg-fill-1'
-                    >
-                      <FolderPlus theme='outline' size='16' fill='currentColor' className='shrink-0 text-t-secondary' />
-                      <span className='text-sm text-t-primary'>
-                        {t('team.create.chooseDifferentFolder', { defaultValue: 'Choose a different folder' })}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
+            <div className='flex gap-8px'>
               <Input
-                placeholder={t('team.create.workspacePlaceholder', { defaultValue: 'Workspace path (optional)' })}
                 value={workspace}
                 onChange={setWorkspace}
+                placeholder={t('team.create.workspacePlaceholder', { defaultValue: 'Workspace path (optional)' })}
               />
-            )}
+              <Button icon={<Folder size='16' />} onClick={handleBrowseWorkspace} data-testid='team-create-workspace-trigger'>
+                {t('common.browse', { defaultValue: 'Browse' })}
+              </Button>
+            </div>
           </FormItem>
         </Form>
       </div>

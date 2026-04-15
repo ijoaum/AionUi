@@ -94,7 +94,9 @@ const GeminiSendBox: React.FC<{
   const { t } = useTranslation();
   const teamPermission = useTeamPermission();
   const isCommandQueueEnabled = useCommandQueueEnabled();
-  const showModeSelector = !teamPermission || teamPermission.isLeadAgent;
+  // In team mode, all agents show the permission mode selector (members don't propagate)
+  const showModeSelector = true;
+  const isLeadInTeam = teamPermission?.isLeadAgent ?? false;
   const { checkAndUpdateTitle } = useAutoTitle();
 
   // Agent auto-detection state - only for new conversation + no auth scenario
@@ -264,13 +266,14 @@ const GeminiSendBox: React.FC<{
               teamId,
               slotId: agentSlotId,
               content: displayMessage,
+              files,
             });
             const maybeError = result as unknown as { __bridgeError?: boolean; message?: string };
             if (maybeError.__bridgeError) {
               throw new Error(maybeError.message || 'Failed to send message to agent');
             }
           } else {
-            const result = await ipcBridge.team.sendMessage.invoke({ teamId, content: displayMessage });
+            const result = await ipcBridge.team.sendMessage.invoke({ teamId, content: displayMessage, files });
             const maybeError = result as unknown as { __bridgeError?: boolean; message?: string };
             if (maybeError.__bridgeError) {
               throw new Error(maybeError.message || 'Failed to send message to team');
@@ -466,7 +469,7 @@ const GeminiSendBox: React.FC<{
                 modeLabelFormatter={(mode) => t(`agentMode.${mode.value}`, { defaultValue: mode.label })}
                 compactLabelPrefix={t('agentMode.permission')}
                 hideCompactLabelPrefixOnMobile
-                onModeChanged={teamPermission?.propagateMode}
+                onModeChanged={isLeadInTeam ? teamPermission?.propagateMode : undefined}
               />
             )}
           </div>
